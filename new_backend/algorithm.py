@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import numpy as np
 import json
@@ -6,14 +7,23 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.neighbors import NearestNeighbors
 from directus_sdk_py import DirectusClient
 from pathlib import Path
-from config import DIRECTUS_URL, DIRECTUS_TOKEN
 from typing import Optional, List
 import hashlib
+
+# Получение констант из переменных окружения
+DIRECTUS_URL = os.getenv('DIRECTUS_URL')
+DIRECTUS_TOKEN = os.getenv('DIRECTUS_TOKEN')
+
+# Проверка наличия обязательных переменных окружения
+if not DIRECTUS_URL or not DIRECTUS_TOKEN:
+    raise ValueError(
+        "Не заданы обязательные переменные окружения: "
+        "DIRECTUS_URL и DIRECTUS_TOKEN"
+    )
 
 # Подключение к Директусу
 directus = DirectusClient(DIRECTUS_URL, token=DIRECTUS_TOKEN)
 
-# Веса признаков
 FEATURE_WEIGHTS = {
     'profile_text': 1.0,
     'roomstyle': 0.8,

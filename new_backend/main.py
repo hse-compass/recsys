@@ -1,10 +1,84 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from typing import List, Optional
+from fastapi.middleware.cors import CORSMiddleware
 from algorithm import ProfileVectorizer, StudentRecommender, load_student_data, FEATURE_WEIGHTS
 
+import random
+import os
+import logging
+from datetime import datetime
 
 app = FastAPI()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+def configure_cors():
+    origins = os.getenv("CORS_ALLOW_ORIGINS", "").split(";")
+    
+    # Очищаем и проверяем origins
+    cleaned_origins = [origin.strip() for origin in origins if origin.strip()]
+    
+    if not cleaned_origins:
+        cleaned_origins = [
+            "http://localhost",
+            "http://localhost:3000",
+            "http://127.0.0.1",
+            "http://127.0.0.1:3000"
+        ]
+        logger.warning("Using default CORS origins for local development")
+    
+    allow_credentials = os.getenv("CORS_ALLOW_CREDENTIALS", "false").lower() == "true"
+
+    allow_methods = os.getenv("CORS_ALLOW_METHODS", "GET;POST;PUT;OPTIONS").split(";")
+    allow_headers = os.getenv("CORS_ALLOW_HEADERS", "Content-Type;Authorization").split(";")
+
+    logger.info(f"CORS Configuration: "
+                f"origins={cleaned_origins}, "
+                f"credentials={allow_credentials}, "
+                f"methods={allow_methods}, "
+                f"headers={allow_headers}")
+    return {
+        "allow_origins": cleaned_origins,
+        "allow_credentials": allow_credentials,
+        "allow_methods": [m.strip() for m in allow_methods if m.strip()],
+        "allow_headers": [h.strip() for h in allow_headers if h.strip()],
+    }
+
+# Применяем CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    **configure_cors()
+)
+
+# Middleware для логирования запросов
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = datetime.now()
+    
+    # Пропускаем запросы к документации
+    if request.url.path in ["/docs", "/openapi.json", "/redoc"]:
+        return await call_next(request)
+    
+    logger.info(f"Request: {request.method} {request.url.path} "
+                f"from {request.client.host if request.client else 'unknown'}")
+    
+    try:
+        response = await call_next(request)
+    except Exception as e:
+        logger.error(f"Request error: {str(e)}", exc_info=True)
+        raise
+    
+    process_time = (datetime.now() - start_time).total_seconds() * 1000
+    logger.info(f"Response: {response.status_code} "
+                f"(took {process_time:.2f} ms)")
+    
+    return response
+
 recommender = StudentRecommender()
 vectorizer = ProfileVectorizer(FEATURE_WEIGHTS)
 
