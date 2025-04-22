@@ -7,7 +7,8 @@ from sklearn.neighbors import NearestNeighbors
 from directus_sdk_py import DirectusClient
 from pathlib import Path
 from config import DIRECTUS_URL, DIRECTUS_TOKEN
-
+from typing import Optional, List
+import hashlib
 
 # Подключение к Директусу
 directus = DirectusClient(DIRECTUS_URL, token=DIRECTUS_TOKEN)
@@ -101,6 +102,7 @@ class StudentRecommender:
     def __init__(self, issued_path='issued_ids.json'):
         self.issued_path = Path(issued_path)
         self.issued_ids = self.load_issued_ids()
+        self.cache = {}
 
     def load_issued_ids(self):
         if self.issued_path.exists():
@@ -110,23 +112,46 @@ class StudentRecommender:
 
     def save_issued_ids(self):
         with open(self.issued_path, 'w') as f:
-            #json.dump(list(self.issued_ids), f)
+            # Сохраняем только выданные анкеты
             json.dump([int(i) for i in self.issued_ids], f)
 
-    def find_similar_profiles(self, input_vectors, pool_df, pool_vectors, n, sex=None, distance_threshold=None):
+    def _generate_cache_key(self, input_ids, n, sex, is_foreigner):
+        key_raw = json.dumps({
+            'input_ids': sorted(input_ids),
+            'n': n,
+            'sex': sex,
+            'is_foreigner': bool(is_foreigner) if is_foreigner is not None else None
+        }, sort_keys=True)
+        return hashlib.md5(key_raw.encode()).hexdigest()
+    def find_similar_profiles(self, input_vectors, pool_df, pool_vectors, n, sex=None, distance_threshold=None,is_foreigner=None, course: int = 1, input_ids: Optional[List[int]] = None):
 
-        # Фильтрация по полу
+        cache_key = self._generate_cache_key(input_ids or [], n, sex, is_foreigner)
+        if cache_key in self.cache:
+            return self.cache[cache_key]
+        
+        # Применяем фильтрацию по признакам
+        mask = pd.Series([True] * len(pool_df))
+
         if sex is not None:
-            mask = pool_df['sex'] == sex
-            pool_df = pool_df[mask].reset_index(drop=True)
-            pool_vectors = pool_vectors[mask.values]
+            mask &= pool_df['sex'] == sex
 
-        if len(pool_df) < n:
+        if course is not None and 'course' in pool_df.columns:
+            mask &= pool_df['course'] == course
+
+        if is_foreigner is not None:
+            mask &= pool_df['is_foreigner'] == is_foreigner
+
+        # Оставляем только отфильтрованные данные
+        filtered_df = pool_df[mask].reset_index(drop=True)
+        filtered_vectors = pool_vectors[mask.values]
+
+        # Если после фильтрации ничего не осталось
+        if len(filtered_df) < n:
             return []
 
         # Подбор ближайших соседей
-        knn = NearestNeighbors(n_neighbors=min(n * 5, len(pool_df)), metric='cosine')
-        knn.fit(pool_vectors)
+        knn = NearestNeighbors(n_neighbors=min(n * 5, len(filtered_df)), metric='cosine')
+        knn.fit(filtered_vectors)
 
         centroid = np.mean(input_vectors, axis=0).reshape(1, -1)
         distances, indices = knn.kneighbors(centroid)
@@ -139,4 +164,5 @@ class StudentRecommender:
             if len(selected_ids) == n:
                 break
 
+        self.cache[cache_key] = selected_ids
         return selected_ids

@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 from algorithm import ProfileVectorizer, StudentRecommender, load_student_data, FEATURE_WEIGHTS
-import random
+
 
 app = FastAPI()
 recommender = StudentRecommender()
@@ -12,6 +12,8 @@ class RecommendationRequest(BaseModel):
     available_places: int
     max_capacity: int
     questionnaires_ids: Optional[List[int]] = None
+    gender: Optional[str] = None  
+    foreigner: Optional[bool] = None
 
 @app.get("/check_questionnaires_data")
 def check_student_data():
@@ -47,6 +49,10 @@ def recommend_profiles(data: RecommendationRequest):
     if valid_ids:
         # Удаляем анкеты из пула, чтобы не рекомендовать их снова
         df_unissued = df_unissued[~df_unissued['id'].isin(valid_ids)].reset_index(drop=True)
+    
+    # Ограничиваем df_unissued только первокурсниками
+    if 'course' in df_unissued.columns:
+        df_unissued = df_unissued[df_unissued['course'] == 1].reset_index(drop=True)
 
     vectors_unissued = vectorizer.transform(df_unissued)
 
@@ -62,24 +68,28 @@ def recommend_profiles(data: RecommendationRequest):
             raise HTTPException(status_code=404, detail="Не удалось векторизовать анкеты по переданным ID")
 
         sex = df_existing['sex'].mode()[0] if 'sex' in df_existing else None
-
+        is_foreigner = df_existing['is_foreigner'].mode()[0] if 'is_foreigner' in df_existing else None
 
         ids = recommender.find_similar_profiles(
             input_vectors=existing_vectors,
             pool_df=df_unissued,
             pool_vectors=vectors_unissued,
             n=n,
-            sex=sex
+            sex=sex,
+            is_foreigner=is_foreigner,
+            input_ids=valid_ids  
         )
     else:
-        random_sex = random.choice(['Male', 'Female'])
+
 
         ids = recommender.find_similar_profiles(
             input_vectors=vectors_unissued,
             pool_df=df_unissued,
             pool_vectors=vectors_unissued,
             n=n,
-            sex=random_sex
+            sex=data.gender,
+            is_foreigner=data.foreigner,
+            input_ids=[]
         )
 
     if not ids:
