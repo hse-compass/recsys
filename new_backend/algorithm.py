@@ -158,7 +158,7 @@ class StudentRecommender:
 
         selected_ids = []
         for dist, idx in zip(distances[0], indices[0]):
-            student_id = pool_df.iloc[idx]['id']
+            student_id = filtered_df.iloc[idx]['id']
             if student_id not in self.issued_ids and (distance_threshold is None or dist <= distance_threshold):
                 selected_ids.append(student_id)
             if len(selected_ids) == n:
