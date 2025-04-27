@@ -11,7 +11,3 @@ venv
 .venv
 *.log
 .DS_Store 
-backend/
-dormitory/
-frontend/
-student_data/
