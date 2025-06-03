@@ -62,7 +62,16 @@ def load_student_data():
 
     # Преобразуем в DataFrame
     df = pd.DataFrame(all_students)
-    df = df.dropna(subset=['sex'])  
+    df = df.dropna(subset=['sex'])
+
+    # Получаем user_id уже заселённых студентов
+    occupations = directus.get_items("student_accommodation_room_occupations")
+    occupied_user_ids = {item['user_id'] for item in occupations if 'user_id' in item}
+
+    # Исключаем анкеты, где user_id уже заселён
+    if 'user_id' in df.columns:
+        df = df[~df['user_id'].isin(occupied_user_ids)].reset_index(drop=True)
+
     return df
 
 # Векторизация профилей
